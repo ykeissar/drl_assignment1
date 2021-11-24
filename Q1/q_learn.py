@@ -1,57 +1,74 @@
 import numpy as np
+import copy
 
 
-def q_learn(env, Q=None, alpha=0.1, gamma=0.99, epsilon=1, episodes=5000, steps=100,
+def q_learn(env, Q=None, alpha=0.1, gamma=0.99, epsilon=0.99, ep_decay=1.07, lr_dec=0, episodes=5000, steps=100,
             debug=False):
-
+    Qs = []
     num_act = env.action_space.n
     num_states = env.observation_space.n
     if not Q:
         Q = np.zeros((num_states, num_act))
 
-    ep_rewards = []
-    ep_avg_steps = []
-    ep100_steps_to_goal = []
+    # holds the number of rewards for an episode
+    total_ep_rewards = []
+    # holds the number of average number of steps for an episode
+    total_ep_avg_steps = []
+
     for i in range(episodes):
         s = env.reset()
         count_steps = 0
         count_rewards = 0
+        ep_avg_steps = []
 
         for j in range(steps):
             count_steps += 1
-            a = env.action_space.sample() if np.random.rand() < epsilon else np.argmax(Q[s, :])
+            if np.random.rand() < epsilon:
+                a = env.action_space.sample()
+            else:
+                a = rand_argmax(Q[s, :])
 
             s_tag, r, done, _ = env.step(a)
+            # env.render()
             if done:
                 if r > 0:
                     if debug:
                         print(f"done - episode {i} took - {count_steps} steps")
-                    ep100_steps_to_goal.append(count_steps)
+                    ep_avg_steps.append(count_steps)
                     count_steps = 0
                     count_rewards += 1
                 target = r
                 s_tag = env.reset()
             else:
-                target = r + gamma * max(Q[s_tag, :])
+                qm = max(Q[s_tag, :])
+                target = r + gamma * qm
             Q[s, a] = (1 - alpha) * Q[s, a] + alpha * target
+
             s = s_tag
 
-        if debug and np.sum(Q) > 0:
-            print(Q)
+        total_ep_rewards.append(count_rewards)
 
-        ep_rewards.append(count_rewards)
-
-        # saves the avarage number of steps to goal in last 100 episodes
-        if i % 100 == 99:
+        if ep_avg_steps:
             if debug:
-                print(f"Episode {i} - steps to goal -\n{ep100_steps_to_goal}")
-            if ep100_steps_to_goal:
-                ep_avg_steps.append(np.mean(ep100_steps_to_goal))
-            else:
-                ep_avg_steps.append(100)
-            ep100_steps_to_goal = []
+                print(f"Episode {i} - steps to goal - {ep_avg_steps}")
+            total_ep_avg_steps.append(np.mean(ep_avg_steps))
+        else:
+            total_ep_avg_steps.append(100)
 
-        # decaing e-greedy by 2 factor
-        epsilon /= 1.1
+        # decaying e-greedy epsilon
+        if epsilon > 0.01:
+            epsilon /= ep_decay
 
-    return Q, ep_rewards, ep_avg_steps
+        if alpha > 0:
+            alpha -= lr_dec
+            alpha = 0 if alpha < 0 else alpha
+
+        if i == 5 or i == 20:
+            Qs.append(copy.deepcopy(Q))
+
+    Qs.append(copy.deepcopy(Q))
+    return Qs, total_ep_rewards, total_ep_avg_steps
+
+
+def rand_argmax(arr):
+    return np.random.choice(np.flatnonzero(arr == arr.max()))
