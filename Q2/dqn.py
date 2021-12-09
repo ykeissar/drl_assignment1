@@ -2,7 +2,7 @@ import numpy as np
 import dqn_agent
 
 
-def dqn(agent: dqn_agent.DQNAgent, episodes=5000, debug=False):
+def dqn(agent: dqn_agent.DQNAgent, episodes=5000):
     ep_rewards = []
     for i in range(episodes):
         s = agent.env.reset()
