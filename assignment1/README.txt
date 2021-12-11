@@ -6,3 +6,4 @@ To run algorithm run Q2/main2.py.
 Most of the parameters are changeable by passing arguments to DQNAgent() builder.
 
 Question 3 -
+To run algorithm run Q3/main.py.
