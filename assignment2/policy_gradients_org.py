@@ -5,6 +5,7 @@ import tensorflow.compat.v1 as tf
 import time
 import matplotlib.pyplot as plt
 import sys
+import json
 
 tf.disable_v2_behavior()
 
@@ -112,6 +113,8 @@ def run_pg(render=False):
 def only_one():
     solved, curr_ep, last_score, p_loss = run_pg()
     if solved:
+        with open('losses/pg.json', 'w+') as f:
+            json.dump([str(p) for p in p_loss],f)
         plt.show()
         plt.plot(list(range(len(p_loss))), p_loss)
         plt.title("Policy network's loss - REINFORCE")

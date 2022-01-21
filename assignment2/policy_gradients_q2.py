@@ -5,7 +5,7 @@ import tensorflow.compat.v1 as tf
 import sys
 
 import logging as log
-import time
+import time, json
 import matplotlib.pyplot as plt
 
 tf.disable_v2_behavior()
@@ -175,6 +175,12 @@ def only_one():
     solved, curr_ep, last_score, v_loss, p_loss = run_pg()
     end = time.time()
     if solved:
+        with open('losses/ac_p.json', 'w+') as f:
+            json.dump([str(p) for p in p_loss], f)
+
+        with open('losses/ac_v.json', 'w+') as f:
+            json.dump([str(v) for v in v_loss], f)
+
         plt.plot(list(range(len(v_loss))), v_loss)
         plt.title("Value network's loss – Advantage Actor-Critic")
         plt.xlabel("Iteration")
