@@ -1,14 +1,16 @@
-Each of the programs - 'policy_gradients_q1.py', 'policy_gradients_q2.py'
-have 3 running modes, determine by the first commandline argument, by executing - "python <program_name.py> <1/2/3>".
-Modes -
-1) Will run algorithm one iteration of algorithm, will plot losses and print episode number and time to convergence.
-   This is the default run if no choice was made.
 
-2) Will run algorithm multiple times, will print mean time to converge and mean episode counts.
-   Number of iterations my be argument - ""python <program_name.py> 2 <#ITERS>" or default N_ITERS value.
+CartPole-v1:
+    state: 4
+    action: 2
 
-3) Will preform hyper-parameters tuning.
+Acrobot-v1:
+    state: 6
+    action: 3
 
+MountainCarContinuous-v0:
+    state: 2
+    action: 1
 
-
-cp - state -
+max:
+    state: 6
+    action: 3

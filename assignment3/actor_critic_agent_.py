@@ -27,6 +27,8 @@ class ActorCriticAgent:
         self.policy = PolicyNetwork(self.padded_state_size, self.padded_action_size, self.learning_rate)
         self.value = ValueNetwork(self.padded_state_size, self.v_learning_rate)
 
+        self.curr_env_name = ''
+
     def train(self):
         # Start training the agent with REINFORCE algorithm
         with tf.Session() as sess:
@@ -44,7 +46,7 @@ class ActorCriticAgent:
                 I = 1
                 for step in range(self.max_steps):
                     actions_distribution = self.policy.predict(state, sess)
-                    action = np.random.choice(np.arange(len(actions_distribution)), p=actions_distribution)
+                    action = self.get_action(actions_distribution)
                     next_state, reward, done, _ = self.env.step(action)
                     next_state = next_state.reshape([1, self.state_size])
                     episode_rewards[episode] += reward
@@ -59,12 +61,15 @@ class ActorCriticAgent:
                     v_s = self.value.predict(state, sess)
                     delta = reward + self.discount_factor * v_s_tag - v_s
 
-                    action_one_hot = np.zeros(self.action_size)
-                    action_one_hot[action] = 1
+                    if self.env.action_space.shape[0] == 1:
+                        act = actions_distribution
+                    else:
+                        act = np.zeros(self.action_size)
+                        act[action] = 1
 
                     _, loss = self.value.update(state, reward + self.discount_factor*v_s_tag, sess)
                     v_loss.append(loss)
-                    _, loss = self.policy.update(state, I * delta, action_one_hot, sess)
+                    _, loss = self.policy.update(state, I * delta, act, sess)
                     p_loss.append(loss)
                     if done:
                         break
@@ -76,7 +81,7 @@ class ActorCriticAgent:
                     # Check if solved
                     average_rewards = np.mean(episode_rewards[(episode - 99):episode + 1])
                 print(f"Episode {episode} Reward: {episode_rewards[episode]} Average over 100 episodes: {round(average_rewards, 2)}")
-                if average_rewards > 475:
+                if self.goal_reached(average_rewards):
                     print(' Solved at episode: ' + str(episode))
                     solved = True
 
@@ -85,12 +90,34 @@ class ActorCriticAgent:
 
         return False, -1, average_rewards, [], []
 
+    def get_action(self, actions_distribution):
+        actions_distribution[self.action_size:] = 0
+        if self.action_size == 1:
+            return actions_distribution
+        sum_p = sum(actions_distribution)
+        actions_distribution = [i / sum_p for i in actions_distribution]
+
+        return np.random.choice(np.arange(len(actions_distribution)), p=actions_distribution)
+
+    def goal_reached(self, average_rewards):
+        if self.curr_env_name == 'CartPole-v1':
+            return average_rewards > 475
+        if self.curr_env_name == 'Acrobot-v1':
+            return average_rewards > -81
+        if self.curr_env_name == 'MountainCarContinuous-v0':
+            return average_rewards > 0
+
+    def set_env(self,env_name):
+        self.curr_env_name = env_name
+        self.policy.set_env(env_name)
+
 
 class PolicyNetwork:
     def __init__(self, state_size, action_size, learning_rate, name='policy_network'):
         self.state_size = state_size
         self.action_size = action_size
         self.learning_rate = learning_rate
+        self.curr_env_name = ''
 
         with tf.variable_scope(name):
             self.state = tf.placeholder(tf.float32, [None, self.state_size], name="state")
@@ -111,19 +138,30 @@ class PolicyNetwork:
             self.output = tf.add(tf.matmul(self.A1, self.W2), self.b2)
 
             # Softmax probability distribution over actions
-            self.actions_distribution = tf.squeeze(tf.nn.softmax(self.output))
-            # Loss with negative log probability
-            self.neg_log_prob = tf.nn.softmax_cross_entropy_with_logits_v2(logits=self.output, labels=self.action)
-            self.loss = tf.reduce_mean(self.neg_log_prob * self.delta)
+            if self.curr_env_name == 'MountainCarContinuous-v0':
+                # self.actions_distribution = []
+                self.actions_distribution = self.output
+                self.diff = tf.nn.l2_loss(self.action[0] - self.output[0])
+                self.loss = tf.reduce_mean(self.diff * self.delta)
+                # need to add comparison to actual action!
+            else:
+                self.actions_distribution = tf.squeeze(tf.nn.softmax(self.output))
+                # Loss with negative log probability
+                self.neg_log_prob = tf.nn.softmax_cross_entropy_with_logits_v2(logits=self.output, labels=self.action)
+                self.loss = tf.reduce_mean(self.neg_log_prob * self.delta)
+
             self.optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(self.loss)
 
     def predict(self, state, sess):
-        # return sess.run(self.actions_distribution, {self.state: pad(state, self.state_size)})
+        return sess.run(self.actions_distribution, {self.state: pad(state, self.state_size)})
 
     def update(self, state, delta, action, sess):
         feed_dict = {self.state: pad(state, self.state_size), self.delta: delta, self.action: pad(action, self.action_size)}
 
         return sess.run([self.optimizer, self.loss], feed_dict)
+
+    def set_env(self, env_name):
+        self.curr_env_name = env_name
 
 
 class ValueNetwork:

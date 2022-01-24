@@ -12,11 +12,11 @@ np.random.seed(1)
 N_ITERS = 10
 tf.disable_v2_behavior()
 
-ENV = 'CartPole-v1'
+ENV = 'MountainCarContinuous-v0'
 
 
 def only_one(env_name):
-    agent = ActorCriticAgent(env=gym.make(env_name))
+    agent = ActorCriticAgent(env=gym.make(env_name), render=True)
 
     start = time.time()
     solved, curr_ep, last_score, v_loss, p_loss = agent.train()
