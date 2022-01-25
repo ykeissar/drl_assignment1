@@ -17,7 +17,7 @@ ENV = 'MountainCarContinuous-v0'
 
 def only_one(env_name):
     agent = ActorCriticAgent(env=gym.make(env_name), render=True)
-
+    agent.set_env(env_name)
     start = time.time()
     solved, curr_ep, last_score, v_loss, p_loss = agent.train()
     end = time.time()

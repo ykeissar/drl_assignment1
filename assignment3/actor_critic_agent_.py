@@ -21,7 +21,7 @@ class ActorCriticAgent:
         self.max_steps = max_steps
 
         self.padded_state_size = 6
-        self.padded_action_size = 3
+        self.padded_action_size = 20
 
         tf.reset_default_graph()
         self.policy = PolicyNetwork(self.padded_state_size, self.padded_action_size, self.learning_rate)
@@ -47,7 +47,7 @@ class ActorCriticAgent:
                 for step in range(self.max_steps):
                     actions_distribution = self.policy.predict(state, sess)
                     action = self.get_action(actions_distribution)
-                    next_state, reward, done, _ = self.env.step(action)
+                    next_state, reward, done, _ = self.take_step(action)
                     next_state = next_state.reshape([1, self.state_size])
                     episode_rewards[episode] += reward
                     if self.render:
@@ -61,7 +61,7 @@ class ActorCriticAgent:
                     v_s = self.value.predict(state, sess)
                     delta = reward + self.discount_factor * v_s_tag - v_s
 
-                    if self.env.action_space.shape[0] == 1:
+                    if self.env.action_space.shape[0] == 1 and False:
                         act = actions_distribution
                     else:
                         act = np.zeros(self.action_size)
@@ -92,7 +92,7 @@ class ActorCriticAgent:
 
     def get_action(self, actions_distribution):
         actions_distribution[self.action_size:] = 0
-        if self.action_size == 1:
+        if self.curr_env_name == 'MountainCarContinuous-v0' and False:
             return actions_distribution
         sum_p = sum(actions_distribution)
         actions_distribution = [i / sum_p for i in actions_distribution]
@@ -107,9 +107,19 @@ class ActorCriticAgent:
         if self.curr_env_name == 'MountainCarContinuous-v0':
             return average_rewards > 0
 
-    def set_env(self,env_name):
+    def set_env(self, env_name):
         self.curr_env_name = env_name
         self.policy.set_env(env_name)
+
+        if env_name == 'MountainCarContinuous-v0':
+            self.action_size = self.padded_action_size
+
+    def take_step(self, action):
+        act = action
+        if self.curr_env_name == 'MountainCarContinuous-v0':
+            # discretesizing action, from [0:self.action_size] number to corelating [-1:1] value
+            act = [round(action / ((self.action_size - 1) / 2) - 1, 2)]
+        return self.env.step(act)
 
 
 class PolicyNetwork:
@@ -138,7 +148,7 @@ class PolicyNetwork:
             self.output = tf.add(tf.matmul(self.A1, self.W2), self.b2)
 
             # Softmax probability distribution over actions
-            if self.curr_env_name == 'MountainCarContinuous-v0':
+            if self.curr_env_name == 'MountainCarContinuous-v0' and False:
                 # self.actions_distribution = []
                 self.actions_distribution = self.output
                 self.diff = tf.nn.l2_loss(self.action[0] - self.output[0])
