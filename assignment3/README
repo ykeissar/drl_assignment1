@@ -3,9 +3,13 @@ CartPole-v1:
     state: 4
     action: 2
 
+    df=0.999, lr=0.0001, vlr=0.0005
+
 Acrobot-v1:
     state: 6
     action: 3
+
+    df=0.999, lr=0.0001, vlr=0.005
 
 MountainCarContinuous-v0:
     state: 2
