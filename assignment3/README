@@ -1,20 +1,23 @@
+Problems keys - 
+CartPole-v1 -> cp
+Acrobot-v1 -> acro
+MountainCarContinuous-v0 -> mcc
 
+Q1 -
+To run AC, execute script q1 when the first argument is the wanted problem's key, for example - "python3 q1.py acro".
+
+Q2 - 
+To run auto tune on problem and change problem after convergence, execute script when first arg is the source problem's key and the second is the target's key, for example - "python3 q2.py acro cp" will train Acrobot until convergence and switch to Cartpole. 
+
+Q3 - 
+To run PNN, execute script when first tow args is the source problems' key and the third is the target's key, for example - "python3 q3.py acro mcc cp " will build the PNN when Acrobot and MountainCarContinuous are the first two columns of PNN which are trained, and the third is of Cartpole which will be trained.
+
+Choosen parameters:
 CartPole-v1:
-    state: 4
-    action: 2
-
     df=0.999, lr=0.0001, vlr=0.0005
 
 Acrobot-v1:
-    state: 6
-    action: 3
-
     df=0.999, lr=0.0001, vlr=0.005
 
 MountainCarContinuous-v0:
-    state: 2
-    action: 1
-
-max:
-    state: 6
-    action: 3
+    df=0.999, lr=0.00001, vlr=0.0005

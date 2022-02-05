@@ -5,15 +5,19 @@ import tensorflow.compat.v1 as tf
 import collections
 import time
 from utils import *
+from sklearn.preprocessing import MinMaxScaler
 
 import tensorflow_probability as tfp
 tfd = tfp.distributions
 
 tf.disable_v2_behavior()
 
+DISCRETIZATION = True
+
 class ActorCriticAgent:
     def __init__(self, env=None, discount_factor=0.999, learning_rate=0.0001, v_learning_rate=0.005, render=False,
-                 max_episodes=5000, max_steps=501, hidden_layer_size=128, v_hidden_layer_size=64):
+                 max_episodes=5000, max_steps=501, hidden_layer_size=128, v_hidden_layer_size=64, var_pref='',
+                 epsilon=1):
         self.discount_factor = discount_factor
         self.learning_rate = learning_rate
         self.v_learning_rate = v_learning_rate
@@ -29,12 +33,13 @@ class ActorCriticAgent:
         self.padded_state_size = 6
         self.padded_action_size = 10
 
-        tf.reset_default_graph()
+        # tf.reset_default_graph()
         self.policy = PolicyNetwork(hidden_layer_size=hidden_layer_size, learning_rate=self.learning_rate,
-                                    state_size=self.padded_state_size, action_size=self.padded_action_size)
-        self.value = ValueNetwork(self.padded_state_size, self.v_learning_rate, hidden_layer_size=v_hidden_layer_size)
+                                    state_size=self.padded_state_size, action_size=self.padded_action_size, var_pref=var_pref)
+        self.value = ValueNetwork(self.padded_state_size, self.v_learning_rate, hidden_layer_size=v_hidden_layer_size, var_pref=var_pref)
 
         self.curr_env_name = ''
+        self.epsilon = epsilon
 
     def train(self, episodes=None):
         start = time.time()
@@ -64,6 +69,11 @@ class ActorCriticAgent:
                     next_state, reward, done, _ = self.take_step(action)
                     next_state = next_state.reshape([1, self.state_size])
                     episode_rewards[episode] += reward
+
+                    if self.curr_env_name == 'MountainCarContinuous-v0':
+                        position = state[0][0]
+                        reward += (position if position > 0 else -position)
+
                     if self.render:
                         self.env.render()
 
@@ -75,7 +85,7 @@ class ActorCriticAgent:
                     v_s = self.value.predict(state, sess)
                     delta = reward + self.discount_factor * v_s_tag - v_s
 
-                    if self.curr_env_name == 'MountainCarContinuous-v0':
+                    if self.curr_env_name == 'MountainCarContinuous-v0' and not DISCRETIZATION:
                         act = action
                     else:
                         act = np.zeros(self.action_size)
@@ -95,20 +105,22 @@ class ActorCriticAgent:
                     # Check if solved
                     average_rewards = np.mean(episode_rewards[(episode - 99):episode + 1])
                 print(f"Episode {episode} Reward: {episode_rewards[episode]} Average over 100 episodes: {round(average_rewards, 2)}")
-                if episode > 98 and self.goal_reached(average_rewards):
+                if self.goal_reached(episode, curr_episode_rewards=episode_rewards[((episode - 99) if episode > 98 else 0):episode + 1]):
                     print(' Solved at episode: ' + str(episode))
                     solved = True
-                if self.hopeless(average_rewards):
+                if self.hopeless(average_rewards, episode):
                     break
                 if solved:
                     end = time.time()
-                    return solved, episode, average_rewards, v_loss, p_loss, end-start
-        end = time.time()
-        return False, -1, average_rewards, [], [], end-start
+                    return solved, episode, average_rewards, v_loss, p_loss, end-start, episode_rewards
 
-    def hopeless(self, average_rewards):
+                self.epsilon *= 0.99
+        end = time.time()
+        return False, -1, average_rewards, [], [], end-start, episode_rewards
+
+    def hopeless(self, average_rewards, episode):
         if self.curr_env_name == 'CartPole-v1':
-            return False
+            return episode > 700 and average_rewards < 13
         if self.curr_env_name == 'Acrobot-v1':
             return average_rewards < -495
         if self.curr_env_name == 'MountainCarContinuous-v0':
@@ -117,7 +129,10 @@ class ActorCriticAgent:
     def get_action(self, actions_distribution, sess):
         actions_distribution[self.action_size:] = 0
 
-        if self.curr_env_name == 'MountainCarContinuous-v0':
+        if self.curr_env_name == 'MountainCarContinuous-v0' and not DISCRETIZATION:
+            if np.random.rand() < self.epsilon:
+                return [np.random.uniform(-1, 1)]
+
             mu = actions_distribution[0]
             sigma = np.power(actions_distribution[1], 2, dtype=np.float32)
             self.policy.dist = tfd.Normal(loc=mu, scale=sigma)
@@ -137,17 +152,19 @@ class ActorCriticAgent:
             raise e
         return a
 
-    def goal_reached(self, average_rewards):
-        if self.curr_env_name == 'CartPole-v1':
-            return average_rewards > 475
-        if self.curr_env_name == 'Acrobot-v1':
-            return average_rewards > -90
+    def goal_reached(self, episode, curr_episode_rewards):
+        if episode > 98 and self.curr_env_name == 'CartPole-v1':
+            return np.mean(curr_episode_rewards) > 475
+        if episode > 98 and self.curr_env_name == 'Acrobot-v1':
+            return np.mean(curr_episode_rewards) > -90
         if self.curr_env_name == 'MountainCarContinuous-v0':
-            return average_rewards > 80
+            return len([r for r in curr_episode_rewards if r > 0]) > 9
+        return False
 
     def set_env(self, env_name):
         self.curr_env_name = env_name
         self.policy.set_env(env_name)
+        self.value.set_env(env_name)
         self.env = gym.make(env_name)
 
         if env_name == 'MountainCarContinuous-v0':
@@ -159,7 +176,7 @@ class ActorCriticAgent:
 
     def take_step(self, action):
         act = action
-        if self.curr_env_name == 'MountainCarContinuous-v0' and False:
+        if self.curr_env_name == 'MountainCarContinuous-v0' and DISCRETIZATION:
             # discretesizing action, from [0:self.action_size] number to corelating [-1:1] value
             act = [round(action / ((self.action_size - 1) / 2) - 1, 2)]
         return self.env.step(act)
@@ -167,39 +184,48 @@ class ActorCriticAgent:
     def init_output_weights(self):
         self.policy.init_output_weights()
 
+    def set_params(self, learning_rate, v_learning_rate, discount_factor):
+        if self.curr_env_name == 'MountainCarContinuous-v0':
+            self.policy.learning_rate = learning_rate
+            self.policy.v_learning_rate = v_learning_rate
+            self.policy.discount_factor = discount_factor
+
 
 class PolicyNetwork:
-    def __init__(self, hidden_layer_size, learning_rate=0.0002, state_size=6, action_size=10, name='policy_network'):
+    def __init__(self, hidden_layer_size, learning_rate=0.0002, state_size=6, action_size=10, name='policy_network', var_pref=''):
         self.state_size = state_size
         self.action_size = action_size
         self.learning_rate = learning_rate
         self.curr_env_name = ''
         self.dist = None
+        self.hidden_layer_size = hidden_layer_size
+        self.scaler = MinMaxScaler().fit(np.array([-1.2, -0.07, 0.6, 0.07]).reshape((-1, 2)))
 
         with tf.variable_scope(name):
-            self.state = tf.placeholder(tf.float32, [None, self.state_size], name="state")
-            self.action = tf.placeholder(tf.int32, [self.action_size], name="action")
-            self.delta = tf.placeholder(tf.float32, name="delta")
-            self.action_mcc = tf.placeholder(tf.float32, name="action_mcc")
+            self.state = tf.placeholder(tf.float32, [None, self.state_size], name=f"{var_pref}state")
+            self.action = tf.placeholder(tf.int32, [self.action_size], name=f"{var_pref}action")
+            self.delta = tf.placeholder(tf.float32, name=f"{var_pref}delta")
+            self.action_mcc = tf.placeholder(tf.float32, name=f"{var_pref}action_mcc")
 
-            self.W1 = tf.get_variable("W1", [self.state_size, hidden_layer_size], initializer=tf.keras.initializers.glorot_normal(seed=0))
-            self.b1 = tf.get_variable("b1", [hidden_layer_size], initializer=tf.zeros_initializer())
-            self.W2 = tf.get_variable("W2", [hidden_layer_size, self.action_size], initializer=tf.keras.initializers.glorot_normal(seed=0))
-            self.b2 = tf.get_variable("b2", [self.action_size], initializer=tf.zeros_initializer())
-            # self.W3 = tf.get_variable("W3", [hidden_layer_size, self.action_size], initializer=tf.keras.initializers.glorot_normal(seed=0))
-            # self.b3 = tf.get_variable("b3", [self.action_size], initializer=tf.zeros_initializer())
+            self.W1 = tf.get_variable(f"{var_pref}W1", [self.state_size, hidden_layer_size], initializer=tf.keras.initializers.glorot_normal(seed=0))
+            self.b1 = tf.get_variable(f"{var_pref}b1", [hidden_layer_size], initializer=tf.zeros_initializer())
+            self.W2 = tf.get_variable(f"{var_pref}W2", [hidden_layer_size, self.action_size], initializer=tf.keras.initializers.glorot_normal(seed=0))
+            self.b2 = tf.get_variable(f"{var_pref}b2", [self.action_size], initializer=tf.zeros_initializer())
+            # self.W3 = tf.get_variable(f"{var_pref}W3", [hidden_layer_size, self.action_size], initializer=tf.keras.initializers.glorot_normal(seed=0))
+            # self.b3 = tf.get_variable(f"{var_pref}b3", [self.action_size], initializer=tf.zeros_initializer())
 
             self.Z1 = tf.add(tf.matmul(self.state, self.W1), self.b1)
             self.A1 = tf.nn.relu(self.Z1)
             # self.Z2 = tf.add(tf.matmul(self.A1, self.W2), self.b2)
             # self.A2 = tf.nn.relu(self.Z2)
             self.output = tf.add(tf.matmul(self.A1, self.W2), self.b2)
+            # self.output = tf.add(tf.matmul(self.A2, self.W3), self.b3)
 
             # Softmax probability distribution over actions
             self.actions_distribution = tf.squeeze(tf.nn.softmax(self.output))
             # Loss with negative log probability
             self.neg_log_prob = tf.nn.softmax_cross_entropy_with_logits_v2(logits=self.output, labels=self.action)
-            if self.curr_env_name == ENVS['mcc']:
+            if self.curr_env_name == ENVS['mcc'] and not DISCRETIZATION:
                 self.loss = -tf.log(self.dist.prob(self.action_mcc))*self.delta
             else:
                 self.loss = tf.reduce_mean(self.neg_log_prob * self.delta)
@@ -207,11 +233,11 @@ class PolicyNetwork:
             self.optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(self.loss)
 
     def predict(self, state, sess):
-        return sess.run(self.actions_distribution, {self.state: pad(state, self.state_size)})
+        return sess.run(self.actions_distribution, {self.state: pad(self.process(state), self.state_size)})
 
     def update(self, state, delta, action, sess):
-        if self.curr_env_name == ENVS['mcc']:
-            feed_dict = {self.state: pad(state, self.state_size), self.delta: delta,
+        if self.curr_env_name == ENVS['mcc'] and not DISCRETIZATION:
+            feed_dict = {self.state: pad(self.process(state), self.state_size), self.delta: delta,
                          self.action_mcc: action, self.action: np.zeros(10)}
         else:
             feed_dict = {self.state: pad(state, self.state_size), self.delta: delta,
@@ -224,23 +250,32 @@ class PolicyNetwork:
     def init_output_weights(self):
         tf.variables_initializer([self.W2, self.b2])
 
+    def process(self, state):
+        if self.curr_env_name == ENVS['mcc']:
+            return self.scaler.transform(state)
+            # return np.array([(state[0, 0]+1.2)/1.8, (state[0, 1]+0.07)/0.14]).reshape(1, -1)
+        return state
+
 
 class ValueNetwork:
-    def __init__(self, state_size, learning_rate, hidden_layer_size, name='value_network', ):
+    def __init__(self, state_size, learning_rate, hidden_layer_size, name='value_network',var_pref='' ):
         self.state_size = state_size
         self.learning_rate = learning_rate
+        self.hidden_layer_size = hidden_layer_size
+        self.curr_env_name = ''
+        self.scaler = MinMaxScaler().fit(np.array([-1.2, -0.07, 0.6, 0.07]).reshape((-1, 2)))
 
         with tf.variable_scope(name):
-            self.state = tf.placeholder(tf.float32, [None, self.state_size], name="v_state")
-            self.delta = tf.placeholder(tf.float32, name="delta")
-            self.target = tf.placeholder(tf.float32, name="target")
+            self.state = tf.placeholder(tf.float32, [None, self.state_size], name=f"{var_pref}v_state")
+            self.delta = tf.placeholder(tf.float32, name=f"{var_pref}delta")
+            self.target = tf.placeholder(tf.float32, name=f"{var_pref}target")
             # self.error = tf.placeholder(tf.float32, name="error")
             # self.z = tf.constant(0, dtype=tf.float32)
 
-            self.W1 = tf.get_variable("v_W1", [self.state_size, hidden_layer_size], initializer=tf.keras.initializers.glorot_normal(seed=0))
-            self.b1 = tf.get_variable("v_b1", [hidden_layer_size], initializer=tf.zeros_initializer())
-            self.W2 = tf.get_variable("v_W2", [hidden_layer_size, 1], initializer=tf.keras.initializers.glorot_normal(seed=0))
-            self.b2 = tf.get_variable("v_b2", [1], initializer=tf.zeros_initializer())
+            self.W1 = tf.get_variable(f"{var_pref}v_W1", [self.state_size, hidden_layer_size], initializer=tf.keras.initializers.glorot_normal(seed=0))
+            self.b1 = tf.get_variable(f"{var_pref}v_b1", [hidden_layer_size], initializer=tf.zeros_initializer())
+            self.W2 = tf.get_variable(f"{var_pref}v_W2", [hidden_layer_size, 1], initializer=tf.keras.initializers.glorot_normal(seed=0))
+            self.b2 = tf.get_variable(f"{var_pref}v_b2", [1], initializer=tf.zeros_initializer())
             # self.W3 = tf.get_variable("v_W3", [12, 12], initializer=tf.keras.initializers.glorot_normal(seed=0))
             # self.b3 = tf.get_variable("v_b3", [12], initializer=tf.zeros_initializer())
             # self.W4 = tf.get_variable("v_W4", [12, 12], initializer=tf.keras.initializers.glorot_normal(seed=0))
@@ -261,11 +296,20 @@ class ValueNetwork:
             self.optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(self.loss)
 
     def predict(self, state, sess):
-        return sess.run(self.v_s, {self.state: pad(state, self.state_size)})
+        return sess.run(self.v_s, {self.state: pad(self.process(state), self.state_size)})
 
     def update(self, state, target, sess):
-        feed_dict = {self.state: pad(state, self.state_size), self.target: target}
+        feed_dict = {self.state: pad(self.process(state), self.state_size), self.target: target}
         return sess.run([self.optimizer, self.loss], feed_dict)
+
+    def process(self, state):
+        if self.curr_env_name == ENVS['mcc']:
+            return self.scaler.transform(state)
+            # return np.array([(state[0, 0]+1.2)/1.8, (state[0, 1]+0.07)/0.14]).reshape(1, -1)
+        return state
+
+    def set_env(self, env_name):
+        self.curr_env_name = env_name
 
 
 def pad(a, l):

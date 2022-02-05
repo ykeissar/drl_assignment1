@@ -36,18 +36,37 @@ def train_transfer(source_env, target_env):
 
 
 def run_pnn(target_env_name, sources, target):
-    agent = PNNAgent(env=gym.make(target_env_name), source_networks=sources, target_network=target)
+    agent = PNNAgent(env=gym.make(target_env_name), source_networks=sources, target_network=target, max_episodes=1500)
+    agent.set_env(target_env_name)
 
-    solved, curr_ep, last_score, v_loss, p_loss, duration = agent.train()
+    solved, curr_ep, last_score, v_loss, p_loss, duration, ep_rew = agent.train()
 
-    save_losses(curr_ep, v_loss, p_loss, f'{target_env_name}_target_pnn', label=f'{target_env_name} - Target - PNN', time=duration)
+    save_losses(curr_ep, v_loss, p_loss, f'{target_env_name}_target_pnn', label=f'{target_env_name} - Target - PNN',
+                time=duration, ep_rew=ep_rew)
 
 
 if __name__ == '__main__':
-    agent = ActorCriticAgent(env=gym.make(ENVS['cp']), render=True)
-    solved, _, _, _, _, _ = agent.train()
-    if solved:
-        source = agent.policy
-        target = PolicyNetwork()
-        run_pnn(ENVS['acro'], source, target)
+    if len(sys.argv) == 4:
 
+        sources = [sys.argv[1], sys.argv[2]]
+        target = sys.argv[3]
+
+        agent0 = ActorCriticAgent(env=gym.make(ENVS[sources[0]]), var_pref='0_', **get_args(sources[0]))
+        agent0.set_env(ENVS[sources[0]])
+        solved0, _, _, _, _, _, _ = agent0.train()
+
+        agent1 = ActorCriticAgent(env=gym.make(ENVS[sources[1]]), var_pref='1_', **get_args(sources[1]))
+        agent1.set_env(ENVS[sources[1]])
+
+        solved1, _, _, _, _, _, _ = agent1.train()
+
+        if solved0 and solved1:
+            agent_t = ActorCriticAgent(env=gym.make(ENVS[target]), var_pref='t_', **get_args(target))
+            agent_t.set_env(ENVS[target])
+
+            run_pnn(ENVS[target], [agent0.policy, agent1.policy], agent_t.policy)
+
+        else:
+            print(f"{', '.join([sources[i] for i,s in enumerate([solved0, solved1]) if s])} FAILED")
+    else:
+        print("Wrong choice")

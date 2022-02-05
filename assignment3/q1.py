@@ -15,29 +15,13 @@ tf.disable_v2_behavior()
 
 
 def only_one(env_name):
-    agent = ActorCriticAgent(env=gym.make(env_name), render=True)
+    agent = ActorCriticAgent(env=gym.make(env_name), **get_args(env_name))
     agent.set_env(env_name)
-    solved, curr_ep, last_score, v_loss, p_loss, duration = agent.train()
+    solved, curr_ep, last_score, v_loss, p_loss, duration, ep_rew = agent.train()
     if solved:
-        save_losses(curr_ep, v_loss, p_loss, f'{env_name}', label=f'{env_name} - Source', time=duration)
+        save_losses(curr_ep, v_loss, p_loss, f'{env_name}', label=f'{env_name}', time=duration, ep_rew=ep_rew)
     else:
         raise Exception("FAILED")
-
-
-def multiple(n_iters):
-    agent = ActorCriticAgent(env=gym.make('CartPole-v1'))
-
-    times = []
-    scores = []
-    i = 0
-    while i < n_iters:
-        solved, curr_ep, _, _, _, duration = agent.train()
-        if solved:
-            scores.append(curr_ep)
-            times.append(duration)
-            i += 1
-
-    print(f"Scores mean - {np.mean(scores)}, Time to converge mean - {np.mean(times)}")
 
 
 def tune_params(env_name):
@@ -46,9 +30,10 @@ def tune_params(env_name):
                     format='%(asctime)s.%(msecs)03d %(levelname)s {%(module)s} [%(funcName)s] %(message)s')
 
     log.info(f"Tune params for {env_name}")
-    lrs = [0.0001, 0.0005, 0.001, 0.005]
-    lrs_v = [0.0001, 0.0005, 0.001, 0.005]
-    df = [0.999, 0.99, 0.95]
+    lrs = [0.00001, 0.00005, 0.0001, 0.0002, 0.0005]
+    lrs_v = [0.0005, 0.005]
+    df = [0.999, 0.99]
+    # sizes = [128]
     already_done = 0
     curr = 0
     for i in range(len(lrs)):
@@ -62,47 +47,33 @@ def tune_params(env_name):
                 solved_all = True
                 scores = []
                 times = []
-                for _ in range(3):
-                    agent = ActorCriticAgent(env=gym.make(env_name), discount_factor=df[t], learning_rate=lrs[i],
-                                             v_learning_rate=lrs_v[j], max_episodes=3000, hidden_layer_size=128, v_hidden_layer_size=64)
-                    agent.set_env(env_name)
-                    solved, curr_ep, _, _, _, duration = agent.train()
-                    if not solved:
-                        solved_all = False
-                        break
-                    scores.append(curr_ep)
-                    times.append(duration)
+                # for _ in range(1):
+                agent = ActorCriticAgent(env=gym.make(env_name), discount_factor=df[t], learning_rate=lrs[i],
+                                         v_learning_rate=lrs_v[j], max_episodes=500)
+                agent.set_env(env_name)
+                solved, curr_ep, _, _, _, duration, ep_rew = agent.train()
+                # if not solved:
+                #     solved_all = False
+                #     tf.reset_default_graph()
+                #     break
+                tf.reset_default_graph()
+                scores.append(curr_ep)
+                times.append(duration)
 
-                if solved_all:
+                if solved:
                     log.info(
-                        f"df={df[t]}, lr={lrs[i]}, vlr={lrs_v[j]} --- FINISHED - score - {np.mean(scores)} episodes, took:{np.mean(times)}")
+                        f"df={df[t]}, lr={lrs[i]}, vlr={lrs_v[j]}--- FINISHED - score - {np.mean(scores)} episodes, took:{np.mean(times)}\nlast 20{ep_rew[-20:]}\ntop 20:{sorted(ep_rew)[-20:]}")
                 else:
                     log.info(
-                        f"df={df[t]}, lr={lrs[i]}, vlr={lrs_v[j]} --- NOT FINISHED")
+                        f"df={df[t]}, lr={lrs[i]}, vlr={lrs_v[j]} --- NOT FINISHED, \nlast 20{ep_rew[-20:]}\ntop 20:{sorted(ep_rew)[-20:]}")
 
                 curr += 1
 
 
 if __name__ == '__main__':
-    if len(sys.argv) < 2 or sys.argv[1] == '1':
-        only_one(ENVS['mcc'])
-        
-    elif sys.argv[1] == '2':
-        if len(sys.argv) > 2:
-            multiple(int(sys.argv[2]))
-        else:
-            multiple(N_ITERS)
-    
-    elif sys.argv[1] == '2':
-        if len(sys.argv) > 2:
-            multiple(int(sys.argv[2]))
-        else:
-            multiple(N_ITERS)
-    elif sys.argv[1] == '3':
-        if len(sys.argv) > 2:
-            tune_params(env_name=ENVS[sys.argv[2]])
-        else:
-            tune_params(env_name=ENVS['cp'])
+    default_env = 'mcc'
+    if len(sys.argv) == 2:
+        only_one(env_name=ENVS[sys.argv[1]])
     else:
         print("Wrong choice")
             

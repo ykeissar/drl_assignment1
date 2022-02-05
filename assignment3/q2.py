@@ -36,35 +36,33 @@ def only_one(env_name):
         print(f"Scores - {curr_ep}, Time to converge - {end-start}")
 
     else:
-        raise Exception("FAILED")
+        raise Exception(f"{env_name} FAILED")
 
 
-def train_transfer(source_env, target_env):#df=0.999, lr=0.0001, vlr=0.005
-    agent = ActorCriticAgent(env=gym.make(source_env), render=False, hidden_layer_size=128, v_hidden_layer_size=64, discount_factor=0.999, learning_rate=0.0001, v_learning_rate=0.005)
+def train_transfer(source_env, target_env):
+    agent = ActorCriticAgent(env=gym.make(source_env))
     agent.set_env(source_env)
 
-    solved, curr_ep, last_score, v_loss, p_loss, duration = agent.train()
+    solved, curr_ep, last_score, v_loss, p_loss, duration, ep_rew = agent.train()
 
-    save_losses(curr_ep, v_loss, p_loss, f'{source_env}_source', label=f'{source_env} - Source', time=duration)
+    save_losses(curr_ep, v_loss, p_loss, f'{source_env}_source', label=f'{source_env} - Source', time=duration, ep_rew=ep_rew)
 
     if solved:
         agent.set_env(target_env)
         agent.init_output_weights()
+        if target_env == 'MountainCarContinuous-v0':
+            agent.set_params(learning_rate=0.00001, v_learning_rate=0.0005, discount_factor=0.999)
 
-        solved, curr_ep, last_score, v_loss, p_loss, duration = agent.train()
+        solved, curr_ep, last_score, v_loss, p_loss, duration, ep_rew = agent.train()
 
-        save_losses(curr_ep, v_loss, p_loss, f'{target_env}_target', label=f'{target_env} - Target', time=duration)
+        save_losses(curr_ep, v_loss, p_loss, f'{target_env}_target', label=f'{target_env} - Transfer', time=duration, ep_rew=ep_rew)
+    else:
+        raise Exception(f"{source_env} FAILED")
 
 
 if __name__ == '__main__':
-    train_transfer(ENVS['acro'], ENVS['cp'])
-
-    # train_transfer(ENVS['cp'], ENVS['mcc'])
-
-    # compare between transferred cp to self-learned cp
-    # insert json files
-    # plot_losses([])
-
-    # compare between transferred mcc to self-learned mcc
-    # insert json files
-    # plot_losses([])
+    default_env = 'mcc'
+    if len(sys.argv) == 3:
+        train_transfer(ENVS[sys.argv[1]], ENVS[sys.argv[2]])
+    else:
+        print("Wrong choice")
